@@ -1,0 +1,247 @@
+<pre class='metadata'>
+Title: Intrusive smart pointer feedback
+Status: P
+Shortname: P1351
+Group: WG21
+Revision: 0
+Editor: Mark Zeren, VMware, mzeren@vmware.com
+Date: 2019-01-20
+Audience: LEWG
+Abstract: Provide feedback for [[P0468R1]] based on experience with intrusive smart pointers at VMware.
+URL: http://wg21.link/P1351R0
+!Source: <a href="https://github.com/mzeren-vmw/P1351">https://github.com/mzeren-vmw/P1351</a>
+Markup Shorthands: markdown yes
+Default Highlight: C++
+</pre>
+
+# Introduction # {#intro}
+
+This rather hastily assembled document provides feedback for
+[[P0468R1]] based on experience with intrusive smart pointers at
+VMware. In summary:
+
+* <strong>Less overhead is an objective</strong> - Intrusive pointers
+   offer significantly less overhead than `std::shared_ptr`. This
+   objective should inform the design for the Standard Library.
+
+* <strong>Raw pointers are a valid use case</strong> - For intrusively
+  reference counted types, raw pointer parameters are inherently less
+  expensive than passing a smart pointer by reference or value.
+
+* <strong>Intrusive smart pointers should retain by default</strong> -
+  Retain by default behavior follows from the raw pointer use cases.
+  [[P1132R2]]'s `out_ptr` covers the C interface use case where we
+  want adopt by default behavior.
+
+
+# Less Overhead # {#overhead}
+
+`std::shared_ptr` provides support for features which, while useful,
+incur compile time and runtime overhead. Intrusive smart pointers have
+fewer features and, correspondingly, less overhead.
+
+[[P0468R1]] focuses on interoperation with C interfaces, but providing
+users with a lower cost alternative to `std::shared_ptr` is an equally
+important motivation.
+
+The following sections describe some of the costs incurred by
+`std::shared_ptr`.
+
+## Inner pointers ## {#inner}
+
+`std::shared_ptr` provides support for being rebound to point to a
+sub-object. This feature forces `std::shared_ptr` to *always* hold two
+pointers. Intrusive smart pointers, on the other hand, can be
+implemented in terms of a single pointer.
+
+## Type Erasure and Deleters ## {#erasure}
+
+`std::shared_ptr` holds a type erased deleter, introducing compile time
+and run time overhead.
+
+## `std::weak_ptr` ## {#weak}
+
+`std::shared_ptr` must *always* provide additional shared state
+storage and runtime logic to support `std::weak_ptr`, even if an
+application never uses it. Intrusive smart pointers, on the other hand,
+do not have support for weak pointers.
+
+## Allocation of shared state ## {#allocation}
+
+`std::shared_ptr` must be responsible for allocating shared state. The
+runtime cost of this allocation can be effectively reduced or
+eliminated via `std::make_shared` which combines shared state
+allocation with controlled object allocation. Nonetheless, managing
+allocations increases the complexity of `std::shared_ptr`. Intrusive
+smart pointers avoid this complexity by deferring allocation to the
+pointed-to type.
+
+
+# Raw Pointers # {#raw}
+
+Sample code for the following sections can be found in this godbolt.org playground: [Godbolt.org](https://godbolt.org/#z:OYLghAFBqd5QCxAYwPYBMCmBRdBLAF1QCcAaPECAM1QDsCBlZAQwBtMQAGAOgFZOBgoUICMpAFYgxrZrVDIApACYAQspWkAzqgCuxZBwDkygMx5ayVjqwBqBSYDCyTQXyp72BZwCCp85etMO0dmIgBbPEUTTx8vbx1Nc2AbWmYwzE0AB2YDGxd0ezVYnxdiHWQCG2JMAmZzAH1Q2uQEesqFAHY1DoARQri4gkwwzJkh%2BycZTU0bABUPONLyyurahsyCYjsuuJsqmrraeo3iCABKGxAbTPqIWh1WVhOLzu6%2Bnz3Vw%2BPNiFmbABUmQuVxuEGB2xU%2BzWtHB9TOhW2728nwO602ygAbDZUJlMMRQiR7D0/gDri8dh89tDvicbAQRuCESYiijqZoAO7MTIQBnA/pU1EEPS0QEEBB4TQCtmdZFC2m/NC0Fw09HELFVBCaEHXW7ELXcG4UqFfcxw5lQ2W7VVHE4a3H4wnqkwkpUq022jFKbH67WQ63ytX0xm%2Bi0BvJcnl8sOC6EisUSqUs61WqkAPw9P1Oxv27GYmkw5sRqbZmZOEEzTRyrQIpDmgIhoNuENeJb2ADdUHh0DYqy1SeT/bGPUzpdTc5h84WjWPqTdgj1rrO2zZO92I9yK2jPervZq/bRUJgAB4GDaQuZkvkL3WIm7E/eG%2Bp3%2Bo3vnF3rWlyhSKrrs9kdZjJFsuhsPAqBsJlrgAWg8EcLSRL9agIX81wAzA8wLAcQKhcDIIhTJYOiapMMLBCVyAnE8QJIhiCI7BzhsN12lA1Z43vFlEKpSjgBqRjmIvNjiFFDjLU/bjgOfZNYk/aTfBKTZlhsJhdBY1kOzwYhhTYJiEGYLZmLJXiCAAOTSMib04Wc0JtRjXjsVR1GqKg0B0egpLEuU/3XEjJywnM8IgMAwHUJzMBc3R3IuLB2CGelEw/Lz8hAEBCQiKIHHMAgPH2CK3IIZ8uhEK05JK1kBiUMwqCwCCVG8AAlbB6gABQAeQASRM2ZsHquIbOAao%2BJUnQCDJTRXIIBFYkqjCCz6/8bAGzA%2BIEssMUcYbsuiDVxtUqbfBm2h8CoAZKTZTJiCyqgIGUJQAAkMNYVAHN4KUlCUOtdpG%2BjjLM9JzhjXxxPk7wlgqGxsGPPF8BQughxlSrwJqmw6salqOq6nrrU2oyak2uzWJqeMvoK7hjPORLrRsgtGAmiBNsBEmcxJ18HxJymqVMWbMGtVbtyzCZNoWPdjPxnMhNFFmObZam8bpvmYQFjaJuF7EmYvFmb3ZziVy5o7wOtNbnQcIXojyCaPNOvpSp8anai0iBIehwg8DoDVMH21sqQAem9mx2og0WJrjYTMHQxW7T3Dkgg5XRWB7Whlp7Mm%2BLOEBrV9xbBvQCBxF0UOAE9sHzAgU9p1TzjLgHZyWvjMDLsXAZLRZkN/I3BZVs3NAcZh2x5uSbJPUYSEwHu%2B8dqGw5dt29w9071LyMeggfeug4rwG9nrmn8fuR5nmlZufBPIZhO8nsHHqerMGQMpCHpiaAQBJufHb5XVJy6ob50O/PbOvZM9mK1Vqi4EhBFUlmbgNgEAEAIJkTQIBfYcmAEoEQ3BWDmAANbe2aiIEQJglDYwfubd%2Bck9gXyvl/O%2BWImazglpCSsMDqxtHOJ9FWslyrA0MGcUgrAQCGF4IYUgtA%2BGcEEagPhDhQqqDyPnXIpgRCCIICIrh3CMEgG9NwEwnAlCcBMHogALPozEIheAmA6AADh4Xw/RgjhGGFEaQcRhhBHwM4KQJR9iuGkDgLAJAaARh4HYGQCgEB/GZECfiEAwBNCpDgQgVAtYqCBJPvAiAAAjZRpA0nmH0gXPhCjSD%2BPSPQVqtBWB5M8aQLAYRZDAHYJk/An8UJ93gZUk818RpGAKVlDC%2BTBHoLSQSYgBcHAYC6Yoy6YQ%2BncJoPQJgbAOA8H4MIFZAhpC1JQFIjQAz4GQG4biWGyo%2BHQVajMaC%2BRiSKEcqoJQzAbDQR6KjJqbVOrdXqi42RHARDcN4fw2xmSnHHnMZiaCmJ9GLWQMgSCilaAYIuI7GGJAHImDEDYUZASgnIu%2BWirZijlFnFUeo/R3BzEdA6CYjovAOj6KpYYzgljfk2NIFMkQAghEAr4S4rg7j8XeJgIgFAqAMX4nIJQMJETiBRJidyTQ8TEnJPxKkjJlTsmpGGX0wpQrikEFKeUhpwxan1MqY06%2BzSMiZPacgTpGqem/IKQMoZIyxkas2HgKZhgFEzLoLTBZXA%2BCrNWesuQmzrnbLwGk3ZLCDmuyOYYE5ZyLkuiuWoG5zAPl6AMFIH5fCBHssqYC4FoLwXAEhdCsosL4W4EIEi%2BRdZ0XhMxaYJQFxJGhrxZ4glpA1GVRJTo8xnAACc9L6WsverwKxhgmV2IcU4rlbiPGiO4T4gVqlMgjVFaEoVDbIliCnrRKQpAOQEkyNMidubp1iL4fImwHJCAIBsECkFYKIVQt5OWuF7bF2EqUOOxl/z82cq0NyhdKiJ1KH/TOwDIHO192IIkOgIB9FAA)
+
+## Raw Pointer Parameters ## {#params}
+Passing a pointer generates better code than passing a smart pointer
+by reference.
+
+Say we have:
+
+<xmp>
+#include <cstdio>
+
+using namespace std;
+
+struct Scout {
+  virtual const char* getName() = 0;
+  ...
+};
+</xmp>
+
+And a function that takes a pointer:
+
+<xmp>
+void greet(Scout* scout)
+{
+  printf("Hello %s", scout->getName());
+}
+</xmp>
+
+Which will generate the following code (with `-Os`, but the argument
+holds for `-O3` as well):
+
+
+```
+ 1 greet(Scout*):
+ 2         subq    $8, %rsp
+ 3         movq    (%rdi), %rax
+ 4         call    *(%rax)
+ 5         popq    %rdx
+ 6         movq    %rax, %rsi
+ 7         movl    $.LC0, %edi
+ 8         xorl    %eax, %eax
+ 9         jmp     printf
+```
+
+Now look at a function that takes a `const retain_ptr&`:
+
+<xmp>
+void greet(const retain_ptr<Scout>& scout)
+{
+  printf("Hello %s", scout->getName());
+}
+</xmp>
+
+It will generate:
+
+```
+ 1 greet(const retain_ptr<Scout>&):
+ 2         subq    $8, %rsp
+ 3         movq    (%rdi), %rdi   <--- HERE
+ 4         movq    (%rdi), %rax
+ 5         call    *(%rax)
+ 6         popq    %rdx
+ 7         movq    %rax, %rsi
+ 8         movl    $.LC0, %edi
+ 9         xorl    %eax, %eax
+10         jmp     printf
+```
+
+Look at line 3. We have an additional indirect load.
+
+This might seem like a small thing, but it will add up in a large
+codebase.
+
+## Extrapolating from there
+
+If we should always pass by pointer, then getters should return by
+pointer too. Otherwise, we have to sprinkle code with verbose
+`.get()`s:
+
+<xmp>
+struct Expedition {
+  Scout* getScout();
+};
+
+void start(Expedition& journey)
+{
+  greet(journey.getScout());  // As opposed to getScout().get().
+}
+</xmp>
+
+Of course the `Scout*`'s lifetime is scoped to `journey`'s lifetime.
+We expect that in the future this semantic will be enforceable by
+static lifetime checkers. See [[LIFETIME]].
+
+# Retain by Default # {#retain}
+
+If we traffic in bare pointers with transitive ownership semantics
+(because it generates better code), assignment to a smart pointer
+indicates intent to add a new shared owner. In this case the smart
+pointer should retain by default.
+
+## Retaining arguments
+
+When we want to retain a result or a passed in argument (of type `T*`) `operator=`
+is the natural tool to use.
+
+<xmp>
+struct Expedition {
+  ...
+  void setScout(Scout* scout) { scout_ = scout; }   // operator=
+  ...
+};
+
+static retain_ptr<Scout> sCave;
+void exploreCave(Expedition& e)
+{
+  sCave = e.getScout();                             // operator=
+  e.setScout(nullptr);
+}
+</xmp>
+
+## `boost::intrusive_ptr` ## {#boost}
+
+`boost::intrusive_ptr` has a retaining `operator=(T *)`.
+
+## `adopt` / `release` still required
+
+Of course we still need the ability to "adopt" and [[P1132R2]]'s
+`out_ptr` should adopt by default for intrusive smart pointers.
+
+<xmp>
+
+extern void C_Recruit(Scout**);
+
+retain_ptr<Scout> recruit()
+{
+  retain_ptr<Scout> scout;
+  C_Recruit(std::out_ptr(scout));
+  return scout;
+}
+</xmp>
+
+Adoption is typically only used at the interface with "C" APIs,
+and should be less frequent than parameter passing and result
+returning.
+
+# Conclusion # {#conclusion}
+
+We should add intrusive smart pointers to the Standard Library not only
+to interoperate with C interfaces, but also so that our users do not
+have to pay for the features of `std::shared_ptr` that they do not
+use. Bare pointers are a natural, and less expensive, parameter and
+return value type for intrusively reference counted types. It follows
+that assigning a bare pointer into a smart pointer should retain by
+default. However, `std::out_ptr`, which operates at the C interface
+boundary should adopt by default.
+
+<pre class=biblio>
+{
+    "LIFETIME": {
+        "href": "https://github.com/isocpp/CppCoreGuidelines/blob/master/docs/Lifetime.pdf",
+        "date": "25 September 2018",
+        "title": "Lifetime safety: Preventing common dangling"
+    }
+}
+</pre>
